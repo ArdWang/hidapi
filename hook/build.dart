@@ -22,9 +22,7 @@ void main(List<String> args) async {
         if (targetOS == OS.macOS) 'CoreFoundation',
         if (targetOS == OS.macOS) 'AppKit',
       ],
-      libraries: [
-        if (targetOS == OS.linux) 'udev',
-      ],
+      libraries: [if (targetOS == OS.linux) 'udev'],
       defines: {},
     );
 
