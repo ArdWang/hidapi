@@ -1,0 +1,19 @@
+name: hidapi
+description: >-
+  Cross-platform Dart bindings for hidapi — the de facto C library for
+  USB HID access. Compiles hidapi from vendored source via Dart build hooks.
+version: 0.1.0
+
+environment:
+  sdk: '>=3.10.0 <4.0.0'
+
+dependencies:
+  code_assets: ^1.0.0
+  hooks: ^1.0.0
+  native_toolchain_c: ^0.17.4
+  ffi: ^2.1.0
+
+dev_dependencies:
+  ffigen: any
+  test: ^1.24.0
+  lints: ^5.0.0
