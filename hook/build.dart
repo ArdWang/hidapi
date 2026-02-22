@@ -25,9 +25,7 @@ void main(List<String> args) async {
       libraries: [
         if (targetOS == OS.linux) 'udev',
       ],
-      defines: {
-        if (targetOS == OS.windows) 'HID_API_NO_EXPORT_DEFINE': null,
-      },
+      defines: {},
     );
 
     await builder.run(input: input, output: output);
