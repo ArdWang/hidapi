@@ -13,7 +13,10 @@ This package wraps the upstream [hidapi](https://github.com/libusb/hidapi)
 C library. It shall expose every public function, struct, and enum from
 `hidapi/hidapi.h`. Platform support shall match upstream: Windows, macOS,
 and Linux. The package shall track upstream releases, adopting new versions
-within a reasonable timeframe of their release.
+within a reasonable timeframe of their release. The wrapper shall remain
+thin — no polling loops, isolate wrappers, or stream abstractions.
+Application-level concurrency patterns vary by use case and belong in
+consuming packages.
 
 ---
 
