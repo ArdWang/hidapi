@@ -20,6 +20,9 @@ final class hid_bus_type {
 /// Opaque hid_device handle (never dereferenced from Dart).
 final class hid_device extends Opaque {}
 
+/// Opaque hid_device_monitor handle (never dereferenced from Dart).
+final class hid_device_monitor extends Opaque {}
+
 /// hidapi version info.
 final class hid_api_version extends Struct {
   @Int32()
@@ -210,3 +213,33 @@ external void hid_darwin_set_open_exclusive(int openExclusive);
 
 @Native<Int32 Function()>()
 external int hid_darwin_get_open_exclusive();
+
+// --- Device monitoring API (hidapi 0.16.0+) ---
+
+@Native<Pointer<hid_device_monitor> Function()>()
+external Pointer<hid_device_monitor> hid_new_device_monitor();
+
+@Native<Void Function(Pointer<hid_device_monitor>)>()
+external void hid_free_device_monitor(Pointer<hid_device_monitor> monitor);
+
+@Native<Int32 Function(Pointer<hid_device_monitor>, UnsignedShort, UnsignedShort)>()
+external int hid_device_monitor_start(
+  Pointer<hid_device_monitor> monitor,
+  int vendor_id,
+  int product_id,
+);
+
+@Native<Void Function(Pointer<hid_device_monitor>)>()
+external void hid_device_monitor_stop(Pointer<hid_device_monitor> monitor);
+
+@Native<Void Function(Pointer<hid_device_monitor>)>()
+external void hid_device_monitor_lock(Pointer<hid_device_monitor> monitor);
+
+@Native<Void Function(Pointer<hid_device_monitor>)>()
+external void hid_device_monitor_unlock(Pointer<hid_device_monitor> monitor);
+
+@Native<Bool Function(Pointer<hid_device_monitor>, Int32)>()
+external bool hid_device_monitor_wait(
+  Pointer<hid_device_monitor> monitor,
+  int milliseconds,
+);
