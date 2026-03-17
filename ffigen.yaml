@@ -46,12 +46,9 @@ structs:
   include:
     - hid_device_info
     - hid_api_version
-    - hid_device_monitor
 enums:
   include:
     - hid_bus_type
 typedefs:
   include:
     - hid_device
-    - hid_device_monitor
-    - hid_device_change_callback

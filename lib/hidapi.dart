@@ -6,11 +6,8 @@ library;
 
 import 'dart:async';
 import 'dart:ffi';
-import 'dart:isolate';
 import 'dart:typed_data';
-
 import 'package:ffi/ffi.dart';
-
 import 'src/hidapi_bindings.g.dart' as ffi;
 
 /// Exception thrown when a hidapi operation fails.
@@ -485,16 +482,6 @@ String _wcharToString(Pointer<WChar> ptr) {
   return buf.toString();
 }
 
-/// Opaque handle to a device monitor.
-class HidDeviceMonitorHandle {
-  HidDeviceMonitorHandle._(this._ptr);
-  Pointer<ffi.hid_device_monitor> _ptr;
-  bool _disposed = false;
-
-  /// Check if the handle is valid.
-  bool get isValid => !_disposed && _ptr != nullptr;
-}
-
 /// Callback type for device change events.
 ///
 /// Called when a device is added or removed.
@@ -503,20 +490,19 @@ typedef HidDeviceChangeCallback = void Function(
 
 /// Monitor for HID device connection and disconnection events.
 ///
-/// Uses native hidapi 0.16.0+ device monitoring API.
-/// This provides immediate native notifications when devices are connected
-/// or disconnected, unlike polling-based approaches.
+/// Uses polling-based approach to detect device changes.
+/// Native device monitoring API is not yet available in official hidapi.
 class HidDeviceMonitor {
   /// Create a new device monitor.
   ///
   /// [vendorId] and [productId] can be used to filter monitored devices.
   /// Use 0 to match all vendors or products.
+  /// [pollInterval] - polling interval for checking device changes.
   HidDeviceMonitor({
     this.vendorId = 0,
     this.productId = 0,
-  }) {
-    _init();
-  }
+    this.pollInterval = const Duration(seconds: 2),
+  });
 
   /// Filter: only monitor devices with this vendor ID.
   /// 0 means match all vendors.
@@ -526,11 +512,12 @@ class HidDeviceMonitor {
   /// 0 means match all products.
   final int productId;
 
-  HidDeviceMonitorHandle? _handle;
+  /// Polling interval for checking device changes.
+  final Duration pollInterval;
+
   bool _isMonitoring = false;
-  Isolate? _isolate;
+  Timer? _pollTimer;
   final _controller = StreamController<HidDeviceEvent>.broadcast();
-  late final ReceivePort _receivePort;
   List<HidDeviceInfo> _lastDevices = [];
 
   /// Stream of device connection/disconnection events.
@@ -542,44 +529,14 @@ class HidDeviceMonitor {
   bool get isMonitoring => _isMonitoring;
 
   /// Check if the monitor has been created successfully.
-  bool get isCreated => _handle != null;
-
-  void _init() {
-    final ptr = ffi.hid_new_device_monitor();
-    if (ptr == nullptr) {
-      throw HidException('Failed to create device monitor');
-    }
-    _handle = HidDeviceMonitorHandle._(ptr);
-  }
+  bool get isCreated => true;
 
   /// Start monitoring for device changes.
   ///
-  /// Throws [HidException] if starting fails.
   /// Throws [StateError] if already monitoring.
   void start() {
     if (_isMonitoring) {
       throw StateError('Monitor is already started');
-    }
-    if (_handle == null || !_handle!.isValid) {
-      throw StateError('Monitor is not created');
-    }
-
-    ffi.hid_device_monitor_lock(_handle!._ptr);
-
-    final result = ffi.hid_device_monitor_start(
-      _handle!._ptr,
-      vendorId,
-      productId,
-    );
-
-    ffi.hid_device_monitor_unlock(_handle!._ptr);
-
-    if (result < 0) {
-      final errPtr = ffi.hid_error(nullptr);
-      final msg = errPtr != nullptr
-          ? errPtr.cast<Utf16>().toDartString()
-          : 'Failed to start device monitoring';
-      throw HidException(msg);
     }
 
     _isMonitoring = true;
@@ -587,30 +544,18 @@ class HidDeviceMonitor {
     // Do initial enumeration to establish baseline
     _lastDevices = hidEnumerate(vendorId: vendorId, productId: productId);
 
-    // Start an isolate to wait for device changes
-    _receivePort = ReceivePort();
-    _receivePort.listen((_) {
+    // Start polling timer
+    _pollTimer = Timer.periodic(pollInterval, (_) {
       _checkForChanges();
     });
-    Isolate.spawn(
-        _monitorIsolate,
-        _IsolateMessage(
-          monitorPtrAddress: _handle!._ptr.address,
-          sendPort: _receivePort.sendPort,
-        ));
   }
 
   /// Stop monitoring for device changes.
   void stop() {
     if (!_isMonitoring) return;
 
-    if (_handle != null && _handle!.isValid) {
-      ffi.hid_device_monitor_stop(_handle!._ptr);
-    }
-
-    _isolate?.kill();
-    _isolate = null;
-    _receivePort.close();
+    _pollTimer?.cancel();
+    _pollTimer = null;
     _isMonitoring = false;
     _lastDevices.clear();
   }
@@ -618,12 +563,6 @@ class HidDeviceMonitor {
   /// Dispose the device monitor and release resources.
   void dispose() {
     stop();
-    if (_handle != null && _handle!.isValid) {
-      ffi.hid_free_device_monitor(_handle!._ptr);
-      _handle!._disposed = true;
-      _handle!._ptr = nullptr;
-    }
-    _handle = null;
     _controller.close();
   }
 
@@ -676,40 +615,12 @@ class HidDeviceMonitor {
     // Last resort: vid/pid is better than nothing
     return a.vendorId == b.vendorId && a.productId == b.productId;
   }
-
-  static void _monitorIsolate(_IsolateMessage message) {
-    final ptr = Pointer<ffi.hid_device_monitor>.fromAddress(
-      message.monitorPtrAddress);
-
-    while (true) {
-      ffi.hid_device_monitor_lock(ptr);
-      // Wait indefinitely for a change (blocking call)
-      final changed = ffi.hid_device_monitor_wait(ptr, -1);
-      ffi.hid_device_monitor_unlock(ptr);
-
-      if (changed) {
-        // Notify the main isolate that a change occurred
-        message.sendPort.send(null);
-      }
-    }
-  }
-}
-
-/// Message passed to the monitor isolate containing native pointer
-/// and send port for notifications.
-class _IsolateMessage {
-  final int monitorPtrAddress;
-  final SendPort sendPort;
-  _IsolateMessage({
-    required this.monitorPtrAddress,
-    required this.sendPort,
-  });
 }
 
 /// A global device monitor that can be used to listen to all device events.
 ///
 /// Convenience wrapper around [HidDeviceMonitor] for simple use cases.
-/// Uses native device monitoring when available (hidapi 0.16.0+).
+/// Uses polling-based approach to detect device changes.
 final class HidDeviceEvents {
   HidDeviceEvents._();
 
